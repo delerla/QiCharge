@@ -1,0 +1,7 @@
+﻿<resources>
+    <color name="primary_neon">#00E5FF</color>
+    <color name="primary_dark">#0A0E17</color>
+    <color name="accent_amber">#FFB300</color>
+    <color name="accent_green">#00E676</color>
+    <color name="accent_red">#FF5252</color>
+</resources>

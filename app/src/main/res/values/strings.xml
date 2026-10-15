@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">QiCharge</string>
+    <string name="app_full_name">QiCharge: Wireless Optimizer</string>
+    <string name="tab_sweet_spot">Sweet Spot</string>
+    <string name="tab_telemetry">Charging HUD</string>
+    <string name="tab_optimizer">Optimizer</string>
+    <string name="tab_cleaner">Cleaner</string>
+    <string name="tab_resources">Hardware</string>
+</resources>
