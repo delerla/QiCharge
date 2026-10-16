@@ -1,4 +1,4 @@
-﻿package com.truestratix.qipositionfinder.service
+package com.truestratix.qipositionfinder.service
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -44,16 +44,16 @@ class ChargingAlertService : Service {
                 putExtra(EXTRA_TARGET_LEVEL, targetLevel)
                 putExtra(EXTRA_TEMP_LIMIT, tempLimit)
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
+            try {
                 context.startService(intent)
-            }
+            } catch (_: Exception) {}
         }
 
         fun stop(context: Context) {
             val intent = Intent(context, ChargingAlertService::class.java)
-            context.stopService(intent)
+            try {
+                context.stopService(intent)
+            } catch (_: Exception) {}
         }
     }
 
@@ -67,7 +67,7 @@ class ChargingAlertService : Service {
         val targetLevel = intent?.getIntExtra(EXTRA_TARGET_LEVEL, 80) ?: 80
         val tempLimit = intent?.getFloatExtra(EXTRA_TEMP_LIMIT, 40.0f) ?: 40.0f
 
-        startForeground(NOTIFICATION_ID, buildForegroundNotification("Monitoring battery status..."))
+        updateNotification("Monitoring battery status...")
         repository.startMonitoring()
 
         monitorJob?.cancel()
