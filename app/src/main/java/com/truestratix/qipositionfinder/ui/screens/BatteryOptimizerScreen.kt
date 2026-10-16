@@ -1,10 +1,20 @@
-﻿package com.truestratix.qipositionfinder.ui.screens
+package com.truestratix.qipositionfinder.ui.screens
 
 import android.app.Activity
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.media.RingtoneManager
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.provider.Settings
 import android.view.WindowManager
+import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -37,15 +47,15 @@ enum class OptimizerProfile(
     val icon: ImageVector
 ) {
     OVERNIGHT(
-        "Overnight Longevity",
-        "Limits charge to 80% with gentle chime to avoid overnight trickle heat",
+        "Overnight Longevity (80% Cap)",
+        "Stops cycle wear at 80% with sound/vibration alerts to avoid overnight trickle heat",
         80,
         39.0f,
         Icons.Default.Bedtime
     ),
     QI_ALIGNMENT(
         "Qi Sweet Spot Mode",
-        "Keeps screen active while aligning phone on wireless pad",
+        "Keeps screen active while aligning phone on wireless induction pad",
         85,
         40.0f,
         Icons.Default.Sensors
@@ -66,12 +76,13 @@ fun BatteryOptimizerScreen(
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
+    val prefs = remember { context.getSharedPreferences("qicharge_optimizer", Context.MODE_PRIVATE) }
 
     var selectedProfile by remember { mutableStateOf(OptimizerProfile.OVERNIGHT) }
-    var isServiceRunning by remember { mutableStateOf(true) }
-    var targetLimit by remember { mutableFloatStateOf(80f) }
-    var thermalLimit by remember { mutableFloatStateOf(40f) }
-    var keepScreenAwake by remember { mutableStateOf(false) }
+    var targetLimit by remember { mutableFloatStateOf(prefs.getInt("target_limit", 80).toFloat()) }
+    var thermalLimit by remember { mutableFloatStateOf(prefs.getFloat("thermal_limit", 40f)) }
+    var keepScreenAwake by remember { mutableStateOf(prefs.getBoolean("screen_awake", false)) }
+    var isProtectionActive by remember { mutableStateOf(prefs.getBoolean("protection_active", true)) }
 
     // Screen awake handler
     DisposableEffect(keepScreenAwake) {
@@ -84,6 +95,61 @@ fun BatteryOptimizerScreen(
         onDispose {
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
+    }
+
+    fun applyOptimization(target: Int, thermal: Float) {
+        prefs.edit()
+            .putInt("target_limit", target)
+            .putFloat("thermal_limit", thermal)
+            .putBoolean("screen_awake", keepScreenAwake)
+            .putBoolean("protection_active", true)
+            .apply()
+
+        isProtectionActive = true
+        ChargingAlertService.start(context, target, thermal)
+
+        // Haptic feedback & confirmation chime
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                vm?.defaultVibrator?.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK))
+            } else {
+                @Suppress("DEPRECATION")
+                val v = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+                @Suppress("DEPRECATION")
+                v?.vibrate(100)
+            }
+        } catch (_: Exception) {}
+
+        Toast.makeText(context, "Optimization Applied: Guarding at $target% & ${thermal.toInt()}°C", Toast.LENGTH_SHORT).show()
+    }
+
+    fun stopOptimization() {
+        prefs.edit().putBoolean("protection_active", false).apply()
+        isProtectionActive = false
+        ChargingAlertService.stop(context)
+        Toast.makeText(context, "Battery Guard Paused", Toast.LENGTH_SHORT).show()
+    }
+
+    fun testAlert() {
+        try {
+            val notificationUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val ringtone = RingtoneManager.getRingtone(context.applicationContext, notificationUri)
+            ringtone.play()
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                vm?.defaultVibrator?.vibrate(
+                    VibrationEffect.createWaveform(longArrayOf(0, 200, 100, 300), -1)
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                val v = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+                @Suppress("DEPRECATION")
+                v?.vibrate(300)
+            }
+        } catch (_: Exception) {}
+        Toast.makeText(context, "Audio & Haptic Alert Triggered", Toast.LENGTH_SHORT).show()
     }
 
     Column(
@@ -100,61 +166,111 @@ fun BatteryOptimizerScreen(
             color = TextPrimary
         )
         Text(
-            text = "Extend lithium-ion cycle lifespan and prevent thermal degradation",
+            text = "Extend lithium-ion cycle lifespan and enforce thermal safety limits",
             style = MaterialTheme.typography.bodyLarge,
             modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
         )
 
-        // Estimated Time & Health Stats
+        // Protection Status Card
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = CardNavy),
-            shape = RoundedCornerShape(16.dp)
+            shape = RoundedCornerShape(16.dp),
+            border = CardDefaults.outlinedCardBorder().copy(
+                brush = Brush.horizontalGradient(
+                    if (isProtectionActive) listOf(OptimalGreen, NeonCyan) else listOf(CardBorderNavy, CardBorderNavy)
+                )
+            )
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(text = "Current Battery", style = MaterialTheme.typography.labelLarge, color = TextSecondary)
-                    Text(
-                        text = "${telemetry.level}%",
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = OptimalGreen
-                    )
-                    Text(
-                        text = if (telemetry.isCharging) "Charging at ${String.format("%.1f", telemetry.wattageWatts)} W" else "Unplugged",
-                        style = MaterialTheme.typography.bodyLarge.copy(fontSize = 12.sp),
-                        color = if (telemetry.isCharging) NeonCyan else TextSecondary
+            Column(modifier = Modifier.padding(20.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = if (isProtectionActive) Icons.Default.Shield else Icons.Default.ShieldMoon,
+                            contentDescription = null,
+                            tint = if (isProtectionActive) OptimalGreen else TextSecondary,
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = if (isProtectionActive) "Health Guard Active" else "Guard Paused",
+                                fontWeight = FontWeight.Bold,
+                                color = if (isProtectionActive) OptimalGreen else TextSecondary,
+                                fontSize = 16.sp
+                            )
+                            Text(
+                                text = if (isProtectionActive) "Target: ${targetLimit.toInt()}% • Heat Limit: ${thermalLimit.toInt()}°C" else "Tap below to activate guard",
+                                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 12.sp),
+                                color = TextSecondary
+                            )
+                        }
+                    }
+
+                    Switch(
+                        checked = isProtectionActive,
+                        onCheckedChange = { active ->
+                            if (active) {
+                                applyOptimization(targetLimit.toInt(), thermalLimit)
+                            } else {
+                                stopOptimization()
+                            }
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = OptimalGreen,
+                            checkedTrackColor = OptimalGreen.copy(alpha = 0.5f)
+                        )
                     )
                 }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(text = "Est. to 80%", style = MaterialTheme.typography.labelLarge, color = TextSecondary)
-                    val remainingMins = calculateTimeToTarget(telemetry.level, 80, telemetry.wattageWatts)
-                    Text(
-                        text = if (!telemetry.isCharging) "—" else if (telemetry.level >= 80) "Reached!" else "${remainingMins}m",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
-                    )
-                    Text(
-                        text = "Est. to 100%: ${if (!telemetry.isCharging) "—" else "${calculateTimeToTarget(telemetry.level, 100, telemetry.wattageWatts)}m"}",
-                        style = MaterialTheme.typography.bodyLarge.copy(fontSize = 12.sp),
-                        color = TextSecondary
-                    )
+
+                HorizontalDivider(color = CardBorderNavy, modifier = Modifier.padding(vertical = 14.dp))
+
+                // Telemetry summary
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text(text = "Battery Level", style = MaterialTheme.typography.labelLarge, color = TextSecondary)
+                        Text(
+                            text = "${telemetry.level}%",
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = OptimalGreen
+                        )
+                    }
+                    Column {
+                        Text(text = "Temperature", style = MaterialTheme.typography.labelLarge, color = TextSecondary)
+                        Text(
+                            text = String.format("%.1f°C", telemetry.temperatureCelsius),
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (telemetry.temperatureCelsius >= thermalLimit) WarningAmber else TextPrimary
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(text = "Est. to Target", style = MaterialTheme.typography.labelLarge, color = TextSecondary)
+                        val remainingMins = calculateTimeToTarget(telemetry.level, targetLimit.toInt(), telemetry.wattageWatts)
+                        Text(
+                            text = if (!telemetry.isCharging) "—" else if (telemetry.level >= targetLimit) "Ready!" else "${remainingMins}m",
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = NeonCyan
+                        )
+                    }
                 }
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Smart Charging Profiles Header
+        // Profiles Header
         Text(
-            text = "Smart Charging Profiles",
+            text = "Select Optimization Profile",
             fontWeight = FontWeight.Bold,
             fontSize = 16.sp,
             color = TextPrimary,
@@ -172,14 +288,8 @@ fun BatteryOptimizerScreen(
                         selectedProfile = profile
                         targetLimit = profile.targetPercent.toFloat()
                         thermalLimit = profile.thermalLimit
-                        if (profile == OptimizerProfile.QI_ALIGNMENT) {
-                            keepScreenAwake = true
-                        } else {
-                            keepScreenAwake = false
-                        }
-                        if (isServiceRunning) {
-                            ChargingAlertService.start(context, profile.targetPercent, profile.thermalLimit)
-                        }
+                        keepScreenAwake = (profile == OptimizerProfile.QI_ALIGNMENT)
+                        applyOptimization(profile.targetPercent, profile.thermalLimit)
                     },
                 colors = CardDefaults.cardColors(
                     containerColor = if (isSelected) CardNavy else DarkNavy
@@ -227,7 +337,7 @@ fun BatteryOptimizerScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Fine Tuning Controls
+        // Custom Tuning & 1-Tap Apply
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = CardNavy),
@@ -235,7 +345,7 @@ fun BatteryOptimizerScreen(
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = "Custom Alarm Thresholds",
+                    text = "Custom Guard Thresholds",
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
@@ -252,12 +362,7 @@ fun BatteryOptimizerScreen(
                 }
                 Slider(
                     value = targetLimit,
-                    onValueChange = {
-                        targetLimit = it
-                        if (isServiceRunning) {
-                            ChargingAlertService.start(context, it.toInt(), thermalLimit)
-                        }
-                    },
+                    onValueChange = { targetLimit = it },
                     valueRange = 70f..100f,
                     steps = 5,
                     colors = SliderDefaults.colors(thumbColor = OptimalGreen, activeTrackColor = OptimalGreen)
@@ -275,18 +380,13 @@ fun BatteryOptimizerScreen(
                 }
                 Slider(
                     value = thermalLimit,
-                    onValueChange = {
-                        thermalLimit = it
-                        if (isServiceRunning) {
-                            ChargingAlertService.start(context, targetLimit.toInt(), it)
-                        }
-                    },
+                    onValueChange = { thermalLimit = it },
                     valueRange = 36f..45f,
                     steps = 8,
                     colors = SliderDefaults.colors(thumbColor = WarningAmber, activeTrackColor = WarningAmber)
                 )
 
-                // Keep Screen Awake toggle
+                // Keep screen awake toggle
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -304,39 +404,106 @@ fun BatteryOptimizerScreen(
                         colors = SwitchDefaults.colors(checkedThumbColor = NeonCyan, checkedTrackColor = ElectricBlue)
                     )
                 }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Apply button
+                    Button(
+                        onClick = { applyOptimization(targetLimit.toInt(), thermalLimit) },
+                        colors = ButtonDefaults.buttonColors(containerColor = NeonCyan, contentColor = DarkNavy),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1.3f)
+                    ) {
+                        Icon(imageVector = Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(text = "Apply Optimization", fontWeight = FontWeight.Bold)
+                    }
+
+                    // Test Alarm button
+                    OutlinedButton(
+                        onClick = { testAlert() },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(imageVector = Icons.Default.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(text = "Test Alarm", fontSize = 12.sp)
+                    }
+                }
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Native Android Battery Usage Shortcut
-        Button(
-            onClick = {
-                try {
-                    context.startActivity(Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS))
-                } catch (_: Exception) {
-                    context.startActivity(Intent(Settings.ACTION_SETTINGS))
-                }
-            },
-            colors = ButtonDefaults.buttonColors(containerColor = ElectricBlue),
-            shape = RoundedCornerShape(10.dp),
-            modifier = Modifier.fillMaxWidth()
+        // System Hardware Battery Protection Bridge
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = CardNavy),
+            shape = RoundedCornerShape(16.dp)
         ) {
-            Icon(imageVector = Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(text = "Android System Battery Optimization")
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "Device Hardware 80% Cap Settings",
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Text(
+                    text = "Most modern tablets and phones (Samsung, Google Pixel, OnePlus) include a hardware 'Protect Battery' or '80% Limit' switch in system settings. Tap below to toggle it on directly.",
+                    style = MaterialTheme.typography.bodyLarge.copy(fontSize = 12.sp),
+                    color = TextSecondary,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                )
+
+                Button(
+                    onClick = {
+                        openSystemBatteryProtection(context)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ElectricBlue),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(imageVector = Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(text = "Open System Battery Protection")
+                }
+            }
         }
     }
 }
 
+fun openSystemBatteryProtection(context: Context) {
+    // 1. Try Samsung's Protect Battery activity
+    val samsungIntent = Intent().apply {
+        component = ComponentName("com.samsung.android.sm", "com.samsung.android.sm.battery.ui.BatteryActivity")
+    }
+    try {
+        context.startActivity(samsungIntent)
+        return
+    } catch (_: Exception) {}
+
+    // 2. Try Battery Saver settings
+    try {
+        context.startActivity(Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS))
+        return
+    } catch (_: Exception) {}
+
+    // 3. Fallback to general settings
+    try {
+        context.startActivity(Intent(Settings.ACTION_SETTINGS))
+    } catch (_: Exception) {}
+}
+
 fun calculateTimeToTarget(currentLevel: Int, targetLevel: Int, wattage: Float): Int {
     if (currentLevel >= targetLevel) return 0
-    if (wattage <= 0.5f) return 60 // fallback estimate
+    if (wattage <= 0.5f) return 45
 
-    // Typical modern 4500mAh battery has ~17.5 Wh capacity
     val totalCapacityWh = 17.5f
     val neededPercent = (targetLevel - currentLevel) / 100f
     val neededWh = totalCapacityWh * neededPercent
-    val hours = (neededWh / (wattage * 0.85f)) // 85% charging efficiency
+    val hours = (neededWh / (wattage * 0.85f))
     return (hours * 60).toInt().coerceIn(1, 300)
 }

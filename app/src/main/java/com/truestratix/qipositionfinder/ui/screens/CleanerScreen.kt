@@ -1,11 +1,12 @@
-﻿package com.truestratix.qipositionfinder.ui.screens
+package com.truestratix.qipositionfinder.ui.screens
 
+import android.app.DownloadManager
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.storage.StorageManager
 import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -25,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.truestratix.qipositionfinder.data.CleanerScanResult
+import com.truestratix.qipositionfinder.data.JunkCategoryItem
 import com.truestratix.qipositionfinder.data.StorageCleanerManager
 import com.truestratix.qipositionfinder.ui.theme.*
 import kotlinx.coroutines.launch
@@ -43,10 +45,17 @@ fun CleanerScreen(
     var isCleaned by remember { mutableStateOf(false) }
     var cleanedAmount by remember { mutableLongStateOf(0L) }
 
+    fun runScan() {
+        coroutineScope.launch {
+            isScanning = true
+            isCleaned = false
+            scanResult = cleanerManager.scanJunk()
+            isScanning = false
+        }
+    }
+
     LaunchedEffect(Unit) {
-        isScanning = true
-        scanResult = cleanerManager.scanJunk()
-        isScanning = false
+        runScan()
     }
 
     Column(
@@ -64,13 +73,14 @@ fun CleanerScreen(
             color = TextPrimary
         )
         Text(
-            text = "Safely clear temporary app caches & optimize storage buffers",
+            text = "Reclaim storage from download packages, residual logs & cache buffers",
             style = MaterialTheme.typography.bodyLarge,
             modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
         )
 
         // Hero Card: Cleanable Junk
-        val junkMb = ((scanResult?.totalJunkBytes ?: 0L) / (1024.0 * 1024.0))
+        val totalJunk = scanResult?.totalJunkBytes ?: 0L
+        val totalFiles = scanResult?.totalFilesFound ?: 0
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = CardNavy),
@@ -78,7 +88,7 @@ fun CleanerScreen(
             border = CardDefaults.outlinedCardBorder().copy(
                 brush = Brush.horizontalGradient(
                     listOf(
-                        if (junkMb > 0) WarningAmber.copy(alpha = 0.6f) else OptimalGreen.copy(alpha = 0.6f),
+                        if (totalJunk > 0) WarningAmber.copy(alpha = 0.6f) else OptimalGreen.copy(alpha = 0.6f),
                         CardBorderNavy
                     )
                 )
@@ -91,30 +101,46 @@ fun CleanerScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Icon(
-                    imageVector = if (isCleaned) Icons.Default.CheckCircle else Icons.Default.CleaningServices,
+                    imageVector = if (isCleaned) Icons.Default.CheckCircle else if (isScanning) Icons.Default.Sync else Icons.Default.CleaningServices,
                     contentDescription = null,
                     tint = if (isCleaned) OptimalGreen else NeonCyan,
                     modifier = Modifier.size(48.dp)
                 )
                 Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = if (isCleaned) "Cache Cleared!" else String.format("%.1f MB", junkMb),
-                    fontSize = 32.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = TextPrimary
-                )
-                Text(
-                    text = if (isCleaned) {
-                        "Freed ${formatBytes(cleanedAmount)} of temporary data"
-                    } else if (junkMb > 0) {
-                        "Cleanable App Caches & Traces"
-                    } else {
-                        "Your cache storage is in optimal condition"
-                    },
-                    style = MaterialTheme.typography.bodyLarge.copy(fontSize = 14.sp),
-                    color = if (isCleaned) OptimalGreen else TextSecondary,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
+
+                if (isScanning) {
+                    Text(
+                        text = "Scanning Storage...",
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = NeonCyan
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth(0.7f),
+                        color = NeonCyan,
+                        trackColor = GaugeTrack
+                    )
+                } else {
+                    Text(
+                        text = if (isCleaned) "Cleanup Complete!" else formatBytes(totalJunk),
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = TextPrimary
+                    )
+                    Text(
+                        text = if (isCleaned) {
+                            "Freed ${formatBytes(cleanedAmount)} of redundant files"
+                        } else if (totalJunk > 0 || totalFiles > 0) {
+                            "$totalFiles cleanable files identified across storage"
+                        } else {
+                            "Storage is tidy • No junk files detected"
+                        },
+                        style = MaterialTheme.typography.bodyLarge.copy(fontSize = 14.sp),
+                        color = if (isCleaned) OptimalGreen else TextSecondary,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(18.dp))
 
@@ -127,14 +153,15 @@ fun CleanerScreen(
                         onClick = {
                             coroutineScope.launch {
                                 isScanning = true
-                                val freed = cleanerManager.cleanAppJunk()
+                                val categories = scanResult?.categories ?: emptyList()
+                                val freed = cleanerManager.cleanAll(categories)
                                 cleanedAmount = freed
                                 isCleaned = true
                                 scanResult = cleanerManager.scanJunk()
                                 isScanning = false
                             }
                         },
-                        enabled = !isScanning && (scanResult?.totalJunkBytes ?: 0L) > 0L,
+                        enabled = !isScanning && ((scanResult?.totalJunkBytes ?: 0L) > 0L || (scanResult?.totalFilesFound ?: 0) > 0),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = NeonCyan,
                             contentColor = DarkNavy
@@ -144,19 +171,13 @@ fun CleanerScreen(
                     ) {
                         Icon(imageVector = Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(text = "Clean Cache", fontWeight = FontWeight.Bold)
+                        Text(text = "Clean All Junk", fontWeight = FontWeight.Bold)
                     }
 
                     // Rescan Button
                     OutlinedButton(
-                        onClick = {
-                            coroutineScope.launch {
-                                isScanning = true
-                                isCleaned = false
-                                scanResult = cleanerManager.scanJunk()
-                                isScanning = false
-                            }
-                        },
+                        onClick = { runScan() },
+                        enabled = !isScanning,
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.weight(1f)
                     ) {
@@ -170,8 +191,18 @@ fun CleanerScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Breakdown List
-        scanResult?.items?.forEach { item ->
+        // Breakdown Categories
+        Text(
+            text = "Storage Junk Breakdown",
+            fontWeight = FontWeight.Bold,
+            fontSize = 16.sp,
+            color = TextPrimary,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 8.dp)
+        )
+
+        scanResult?.categories?.forEach { category ->
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -186,36 +217,76 @@ fun CleanerScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Icon(
-                            imageVector = Icons.Default.FolderZip,
+                            imageVector = when (category.id) {
+                                "apk" -> Icons.Default.Android
+                                "temp" -> Icons.Default.Drafts
+                                "cache" -> Icons.Default.Memory
+                                else -> Icons.Default.FolderOpen
+                            },
                             contentDescription = null,
-                            tint = ElectricBlue,
-                            modifier = Modifier.size(22.dp)
+                            tint = when (category.id) {
+                                "apk" -> WarningAmber
+                                "temp" -> ElectricBlue
+                                else -> NeonCyan
+                            },
+                            modifier = Modifier.size(24.dp)
                         )
-                        Spacer(modifier = Modifier.width(10.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
                         Column {
-                            Text(text = item.name, fontWeight = FontWeight.SemiBold, color = TextPrimary)
                             Text(
-                                text = item.description,
-                                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 12.sp),
-                                color = TextSecondary
+                                text = category.name,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = "${category.fileCount} file(s) • ${category.description}",
+                                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 11.sp),
+                                color = TextSecondary,
+                                maxLines = 2
                             )
                         }
                     }
-                    Text(
-                        text = formatBytes(item.sizeBytes),
-                        fontWeight = FontWeight.Bold,
-                        color = NeonCyan,
-                        fontSize = 14.sp
-                    )
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = if (category.sizeBytes > 0) formatBytes(category.sizeBytes) else "${category.fileCount} items",
+                            fontWeight = FontWeight.Bold,
+                            color = NeonCyan,
+                            fontSize = 13.sp
+                        )
+
+                        if (category.targetFiles.isNotEmpty()) {
+                            IconButton(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        val freed = cleanerManager.cleanCategory(category)
+                                        cleanedAmount = freed
+                                        isCleaned = true
+                                        scanResult = cleanerManager.scanJunk()
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.DeleteOutline,
+                                    contentDescription = "Clean category",
+                                    tint = WarningAmber,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Deep System Storage Manager Button
+        // System Deep Storage Tools
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = CardNavy),
@@ -223,35 +294,59 @@ fun CleanerScreen(
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = "System Deep Storage Cleanup",
+                    text = "System Storage & Downloads",
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
                 Text(
-                    text = "Under modern Android privacy rules, clearing heavy third-party app caches requires opening the system storage dashboard.",
-                    style = MaterialTheme.typography.bodyLarge.copy(fontSize = 13.sp),
+                    text = "Manage system-wide files, browser downloads, and heavy third-party app caches directly via Android settings.",
+                    style = MaterialTheme.typography.bodyLarge.copy(fontSize = 12.sp),
                     color = TextSecondary,
                     modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
                 )
-                Button(
-                    onClick = {
-                        try {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                context.startActivity(Intent(StorageManager.ACTION_MANAGE_STORAGE))
-                            } else {
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Open Downloads
+                    OutlinedButton(
+                        onClick = {
+                            try {
+                                context.startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS))
+                            } catch (_: Exception) {
                                 context.startActivity(Intent(Settings.ACTION_INTERNAL_STORAGE_SETTINGS))
                             }
-                        } catch (_: Exception) {
-                            context.startActivity(Intent(Settings.ACTION_SETTINGS))
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ElectricBlue),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(imageVector = Icons.Default.Storage, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = "Open System Storage Manager")
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(imageVector = Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(text = "Downloads", fontSize = 12.sp)
+                    }
+
+                    // Open System Storage Manager
+                    Button(
+                        onClick = {
+                            try {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                    context.startActivity(Intent(StorageManager.ACTION_MANAGE_STORAGE))
+                                } else {
+                                    context.startActivity(Intent(Settings.ACTION_INTERNAL_STORAGE_SETTINGS))
+                                }
+                            } catch (_: Exception) {
+                                context.startActivity(Intent(Settings.ACTION_SETTINGS))
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ElectricBlue),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1.3f)
+                    ) {
+                        Icon(imageVector = Icons.Default.Storage, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(text = "Storage Manager", fontSize = 12.sp)
+                    }
                 }
             }
         }
