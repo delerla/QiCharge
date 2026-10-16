@@ -315,7 +315,7 @@ fun DeviceResourceScreen(
                     color = TextPrimary,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
-                SpecRow(label = "Application", value = "QiCharge: Wireless Optimizer v1.0.1")
+                SpecRow(label = "Application", value = "QiCharge: Wireless Optimizer v1.1.0")
                 HorizontalDivider(color = CardBorderNavy, modifier = Modifier.padding(vertical = 6.dp))
                 SpecRow(label = "Developer / Organization", value = "TrueStratix")
                 HorizontalDivider(color = CardBorderNavy, modifier = Modifier.padding(vertical = 6.dp))

@@ -1,4 +1,4 @@
-﻿package com.truestratix.qipositionfinder.ui.components
+package com.truestratix.qipositionfinder.ui.components
 
 import android.content.Intent
 import android.net.Uri
@@ -81,7 +81,7 @@ fun AboutAppDialog(
                     color = NeonCyan
                 )
                 Text(
-                    text = "Version 1.0.1 (Build 2) • Android 16 Ready",
+                    text = "Version 1.1.0 (Build 3) • Android 16 Ready",
                     style = MaterialTheme.typography.bodyLarge.copy(fontSize = 12.sp),
                     color = TextSecondary,
                     modifier = Modifier.padding(top = 2.dp, bottom = 16.dp)
