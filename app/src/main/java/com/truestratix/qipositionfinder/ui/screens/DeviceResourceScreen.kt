@@ -1,4 +1,4 @@
-﻿package com.truestratix.qipositionfinder.ui.screens
+package com.truestratix.qipositionfinder.ui.screens
 
 import android.app.ActivityManager
 import android.content.Context
@@ -166,6 +166,60 @@ fun DeviceResourceScreen(
                 SpecRow(label = "Android Version", value = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
                 HorizontalDivider(color = CardBorderNavy, modifier = Modifier.padding(vertical = 6.dp))
                 SpecRow(label = "CPU Supported ABIs", value = Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Developer & Organization Info Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = CardNavy),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "Developer & Open Source",
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                SpecRow(label = "Application", value = "QiCharge: Wireless Optimizer v1.0.1")
+                HorizontalDivider(color = CardBorderNavy, modifier = Modifier.padding(vertical = 6.dp))
+                SpecRow(label = "Developer / Organization", value = "TrueStratix")
+                HorizontalDivider(color = CardBorderNavy, modifier = Modifier.padding(vertical = 6.dp))
+                SpecRow(label = "Lead Author", value = "Dr. Delér Langenberg")
+                HorizontalDivider(color = CardBorderNavy, modifier = Modifier.padding(vertical = 6.dp))
+                SpecRow(label = "Contact", value = "delerla@yahoo.de")
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://delerla.github.io/QiCharge/"))
+                            context.startActivity(intent)
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(text = "Privacy Policy", fontSize = 11.sp)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://truestratix.com"))
+                            context.startActivity(intent)
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(text = "truestratix.com", fontSize = 11.sp)
+                    }
+                }
             }
         }
     }
